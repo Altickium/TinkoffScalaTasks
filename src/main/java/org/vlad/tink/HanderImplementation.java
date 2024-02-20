@@ -5,9 +5,8 @@ import java.util.concurrent.*;
 
 public class HanderImplementation implements Handler {
 
-    private Client client;
+    private final Client client;
     private int retryCount = 0;
-    private Duration lastFailedReq;
     HanderImplementation(Client client) {
         this.client = client;
     }
@@ -23,29 +22,32 @@ public class HanderImplementation implements Handler {
 
             Response result1 = null, result2 = null;
             long startTime = System.nanoTime();
-            long endTime = System.nanoTime();
             int delay = 100;
             while ((System.nanoTime() - startTime) / 1e-9 < 15) {
                 try {
                     result1 = future1.get(delay, TimeUnit.MILLISECONDS);
-                } catch (InterruptedException | ExecutionException | TimeoutException e) {
+                } catch (ExecutionException | TimeoutException e) {
                     executor.shutdown();
-                    return new ApplicationStatusResponse.Failure(Duration.ofNanos(System.nanoTime()), retryCount);
+                    return new ApplicationStatusResponse.Failure(null, retryCount);
+                } catch (InterruptedException e2){
+                    // ignore
                 }
 
                 try {
                     result2 = future2.get(delay, TimeUnit.MILLISECONDS);
-                } catch (InterruptedException | ExecutionException | TimeoutException e) {
+                } catch (ExecutionException | TimeoutException e) {
                     executor.shutdown();
-                    return new ApplicationStatusResponse.Failure(Duration.ofNanos(System.nanoTime()), retryCount);
+                    return new ApplicationStatusResponse.Failure(null, retryCount);
+                } catch (InterruptedException e2){
+                    // ignore
                 }
 
                 Response result = result1;
                 if (result2 != null) result = result2;
-                if (result1 != null && result1 instanceof Response.RetryAfter){
+                if (result1 instanceof Response.RetryAfter){
                     retryCount++;
                 }
-                if (result2 != null && result2 instanceof Response.RetryAfter){
+                if (result2 instanceof Response.RetryAfter){
                     retryCount++;
                 }
 
@@ -59,7 +61,7 @@ public class HanderImplementation implements Handler {
                         TimeUnit.SECONDS.sleep((((Response.RetryAfter) result).delay()).getSeconds());
                     } catch (Exception e){
                         executor.shutdown();
-                        return new ApplicationStatusResponse.Failure(Duration.ofNanos(System.nanoTime()), retryCount);
+                        return new ApplicationStatusResponse.Failure(null, retryCount);
                     }
                     future1 = executor.submit(() -> client.getApplicationStatus1(id));
                     future2 = executor.submit(() -> client.getApplicationStatus2(id));
